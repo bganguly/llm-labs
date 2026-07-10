@@ -89,6 +89,6 @@ Each repo is self-contained with its own `scripts/local-dev.sh`. Prerequisites a
 - **Node 20+**
 - **API keys** — `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` (copy `.env.example` → `.env`)
 
-Cloud deploy (`deploy.sh`) is a future addition — same single-entry-point pattern as the
-[GCP dashboard](https://github.com/bganguly/springboot-gcp-dashboard-backend) and
-[Next.js dashboard](https://github.com/bganguly/nextjs-dashboard) repos.
+Cloud deploy follows the same single-entry-point pattern as the other repos: `./scripts/deploy.sh`
+provisions Artifact Registry, Cloud SQL (RAG demo only), and Cloud Run via Cloud Build — no local
+Docker required. See each repo's README for details.
