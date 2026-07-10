@@ -1,76 +1,94 @@
-# LLM Implementations
+# LLM Labs — RAG · pgvector · Multi-Agent Orchestration · MCP
 
-Portfolio of LLM application patterns — RAG pipelines, vector search, multi-agent orchestration, and provider integrations.
+Portfolio of production-shaped LLM application patterns: retrieval-augmented generation over a vector
+store, multi-agent orchestration with live reasoning visibility, and MCP server design. Each repo
+ships with a `local-dev.sh` entry point, Docker Compose infra, and a `deploy.sh` stub ready for
+cloud targeting.
 
 ---
 
 | | |
 |---|---|
-| **LLM APIs** | Anthropic Claude, OpenAI GPT, NVIDIA NIM / Nemotron (OpenAI-compatible) |
-| **Orchestration** | LangChain, LangGraph, MCP server |
-| **Vector search** | pgvector (PostgreSQL), cosine similarity, semantic chunking |
-| **Streaming** | Token-level SSE via Vercel AI SDK and raw FastAPI `StreamingResponse` |
-| **Backend** | FastAPI + asyncio (Python 3.12) |
-| **Frontend** | Next.js 15 App Router, React 19, TypeScript |
-| **Infra** | Docker Compose, GitHub Actions |
+| **LLM APIs** | Anthropic Claude (primary) · OpenAI GPT · NVIDIA NIM / Nemotron (OpenAI-compatible, `base_url` swap) |
+| **Orchestration** | LangGraph `StateGraph` · parallel `Send` API · conditional routing · conversation state |
+| **Vector search** | pgvector (PostgreSQL 16) · OpenAI `text-embedding-3-small` (1 536 dims) · IVFFlat index · cosine similarity |
+| **RAG** | LangChain chunking + retrieval pipeline · context injection · source citation |
+| **Streaming** | Token-level SSE via Vercel AI SDK `streamText` · raw FastAPI `StreamingResponse` for agent step events |
+| **MCP** | `mcp` Python SDK server over stdio — tools connectable from Claude Desktop, Claude Code, or any MCP client |
+| **Backend** | FastAPI 0.115 + asyncio (Python 3.12) |
+| **Frontend** | Next.js 15 App Router · React 19 · TypeScript 5.7 · Tailwind CSS |
+| **Infra** | Docker Compose · Dockerfiles for backend and frontend · `local-dev.sh` / `infra-down.sh` per repo |
 
 ---
 
-## Projects
+## Repos
 
 ### 1. RAG + pgvector Demo
 
 **Repository:** [rag-pgvector-demo](https://github.com/bganguly/rag-pgvector-demo)
 
-- Ingest any unstructured text → chunk via LangChain `RecursiveCharacterTextSplitter` → embed → store in pgvector
-- Query: cosine similarity retrieval → context injection → token-level SSE streaming via Vercel AI SDK `streamText`
-- Provider toggle: Anthropic / OpenAI / NVIDIA NIM (Nemotron) — same interface, configurable `base_url`
-- FastAPI handles vector operations; Next.js API routes handle LLM streaming
-- Docker Compose: `pgvector/pgvector:pg16`, Redis; seed script pulls Wikipedia articles via REST API
+Ingest any unstructured text → LangChain chunking → OpenAI embeddings → pgvector. Questions trigger
+cosine-similarity retrieval; answers stream token-by-token via Vercel AI SDK `streamText`. Provider
+toggle in the UI switches between Anthropic, OpenAI, and NVIDIA NIM — same interface, configurable
+`base_url`.
+
+```bash
+./scripts/local-dev.sh --seed   # starts infra, seeds 6 Wikipedia articles, opens :3010 + :8001
+```
 
 ```
-Browser ──► Next.js :3010 ──► FastAPI :8001
-              Vercel AI SDK       pgvector (postgres :5433)
-              streamText          LangChain pipeline
+Browser ──► Next.js :3010 ──► FastAPI :8001 ──► pgvector (postgres :5433)
+              Vercel AI SDK       LangChain            IVFFlat cosine index
+              streamText          /api/retrieve        1 536-dim embeddings
 ```
 
 ### 2. Multi-Agent Orchestration Demo
 
 **Repository:** [agent-orchestration-demo](https://github.com/bganguly/agent-orchestration-demo)
 
-- LangGraph `StateGraph`: classify → decompose (parallel `Send`) → retrieve → synthesize
-- Simple queries take the direct path; complex queries decompose into parallel sub-queries
-- Tools: `wikipedia_search`, `duckduckgo_search` — no API key required, live data
-- MCP server (`app/mcp/server.py`) exposes the same tools over stdio for Claude Desktop integration
-- Agent steps streamed to the browser as SSE events; frontend shows each node live
+LangGraph graph classifies each query, optionally decomposes it into parallel sub-queries via the
+`Send` API, retrieves context from Wikipedia and DuckDuckGo, then synthesizes a grounded answer.
+Every agent step streams to the browser as SSE events — pending / active / done — before the final
+answer appears. The same tools are exposed as an MCP server over stdio.
+
+```bash
+./scripts/local-dev.sh   # starts infra, opens :3011 + :8002
+```
 
 ```
-Browser ──► Next.js :3011 ──► FastAPI :8002
-              SSE step events     LangGraph graph
-                                  classify → decompose → retrieve (parallel) → synthesize
-                                  MCP server (stdio) ← Claude Desktop
+Browser ──► Next.js :3011 ──► FastAPI :8002 ──► LangGraph graph
+              SSE consumer       /api/agent/run     classify → decompose → retrieve × N → synthesize
+              StepTracker UI                        Wikipedia API / DuckDuckGo API
+
+Claude Desktop ──stdio──► app/mcp/server.py ──► same tools
 ```
 
 ### 3. Natural Language to LLM Query Comparison
 
 **Repository:** [natural-language-to-llm-query-comparison](https://github.com/bganguly/natural-language-to-llm-query-comparison)
 
-- Compare NL-to-SQL generation across Anthropic and OpenAI models side-by-side
-- Executes generated SQL in-browser via DuckDB-WASM against any Parquet endpoint
-- Schema auto-detection from Parquet metadata; no backend required
-- React 19 + Vite
+Side-by-side NL-to-SQL generation across Anthropic and OpenAI models. Generated SQL executes
+in-browser via DuckDB-WASM against a Parquet snapshot of DOL H1B LCA disclosures. Schema is
+auto-detected from Parquet metadata; no backend or database required.
 
 ### 4. Parse LCA Files to Parquet
 
 **Repository:** [parse-lca-files-to-parquet](https://github.com/bganguly/parse-lca-files-to-parquet)
 
-- Pipeline that parses Labor Condition Application (LCA) disclosure files into Parquet format
-- Powers the default data source for the NL-to-SQL comparison demo
+Pipeline that downloads and parses DOL Labor Condition Application disclosure Excel files into a
+cleaned Parquet dataset. Powers the default data source for the NL-to-SQL comparison demo.
 
 ---
 
-## Architecture Notes
+## Local Dev — All Repos
 
-The RAG demo and agent demo are intentionally separate: the first shows the retrieval/vector layer in depth, the second shows the orchestration layer. The agent's `retrieve` tool can be wired to the RAG service's `/api/retrieve` endpoint to compose them.
+Each repo is self-contained with its own `scripts/local-dev.sh`. Prerequisites across all:
 
-The MCP server in the agent demo means the same tools are accessible from Claude Desktop, Claude Code, or any MCP-compatible client — the tool layer is client-agnostic.
+- **Docker** — for postgres/pgvector and redis
+- **Python 3.12+**
+- **Node 20+**
+- **API keys** — `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` (copy `.env.example` → `.env`)
+
+Cloud deploy (`deploy.sh`) is a future addition — same single-entry-point pattern as the
+[GCP dashboard](https://github.com/bganguly/springboot-gcp-dashboard-backend) and
+[Next.js dashboard](https://github.com/bganguly/nextjs-dashboard) repos.
